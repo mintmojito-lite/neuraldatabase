@@ -1,0 +1,2 @@
+CompileFlags:
+  Add: [-Ic:/NeuralDB/include, -march=avx2]

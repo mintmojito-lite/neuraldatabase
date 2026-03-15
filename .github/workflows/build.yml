@@ -1,0 +1,49 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [ main, dev ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '2024.09.30'
+          vcpkgJsonGlob: '**/vcpkg.json'
+
+      - name: Install dependencies
+        run: |
+          vcpkg install google-benchmark:x64-windows gtest:x64-windows pybind11:x64-windows nlohmann-json:x64-windows
+        shell: pwsh
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+        shell: pwsh
+
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+        shell: pwsh
+
+      - name: Run distance tests
+        run: .\build\Release\test_distance.exe
+        shell: pwsh
+
+      - name: Run HNSW & recall validation tests
+        run: .\build\Release\test_hnsw.exe
+        shell: pwsh
+
+      - name: CTest
+        run: ctest --test-dir build -C Release --output-on-failure
+        shell: pwsh
