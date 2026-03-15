@@ -108,6 +108,3 @@ Based on [Malkov & Yashunin 2016](https://arxiv.org/abs/1603.09320):
 - **Search**: greedy descent to layer 0, beam search with `ef_search`, return top-k
 - **Default params**: M=16, ef_construction=200, ef_search=50
 
-## License
-
-MIT
