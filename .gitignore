@@ -1,3 +1,33 @@
-*.npy
+# Build & Binaries
 build/
+bin/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+*.pyd
+*.obj
+*.o
+*.a
+*.lib
+
+# Temporary / Test Artifacts
+*.npy
 *.wal
+*.bin
+*.tmp
+*.log
+test_wal_tmp.wal
+test_paged_tmp.bin
+test_paged_lru_tmp.bin
+test_paged_bench_tmp.bin
+
+# IDE & Tooling
+.vs/
+.cache/
+.clangd/
+.idea/
+.vscode/
+*.user
+*.suo
