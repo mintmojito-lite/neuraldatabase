@@ -1,53 +1,56 @@
-# NeuralDB 🚀
+# NeuralDB
 
-A high-performance, from-scratch vector database engine written in C++17 with Python bindings.
+NeuralDB is a lightweight, high-performance vector database engine written in C++17 with Python bindings.
 
-> **Pure Systems Engineering** — Built without FAISS, Annoy, or external ANN libraries. Features SIMD acceleration, lock-free parallel execution, out-of-RAM paged indexing, and Write-Ahead Logging (WAL) for durability.
+Designed strictly from first principles without external ANN libraries (such as FAISS or Annoy), NeuralDB demonstrates systems-level optimizations including SIMD vector dispatch (AVX2 / ARM NEON), lock-free parallel graph traversals, mmap-backed disk paging, and Write-Ahead Logging (WAL) for durability.
 
 ---
 
-## 🌟 Key Features
+## Architectural Overview
 
-| Feature | Description |
+### Features
+
+| Component | Engineering Details |
 |---|---|
-| ⚡ **Hardware Acceleration** | SIMD vector kernels with AVX2 & ARM NEON runtime dispatch for Cosine and L2 metrics. |
-| 🌐 **HNSW Index** | Multi-layer graph index (Malkov & Yashunin 2016) with soft-deletion tombstoning and graph preservation. |
-| 🚀 **Parallel Flat Index** | OpenMP lock-free parallel brute-force vector search for 100% recall requirements. |
-| 📑 **Paged Indexing** | Disk-backed `PagedIndex` with configurable LRU memory-mapped paging for datasets exceeding RAM. |
-| 🛡️ **WAL & Recovery** | Write-Ahead Log (WAL) ensuring persistence and crash recovery. |
-| 🔍 **Metadata Filtering** | Complex query-time JSON predicate evaluation (`$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`). |
-| 🐍 **Python Interface** | Zero-copy NumPy integration powered by pybind11. |
-| 🛠️ **CLI Suite** | Command-line benchmarking and search execution tool. |
+| **SIMD Distance Kernels** | Runtime-dispatched AVX2 (x86_64) and ARM NEON kernels evaluating Cosine similarity and L2 distance. |
+| **HNSW Graph Index** | Multi-layer graph implementation based on Malkov & Yashunin (2016). Supports soft deletion via tombstoning without compromising graph connectivity. |
+| **Parallel Flat Index** | OpenMP-accelerated brute-force vector search offering zero recall degradation ($100\%$ accuracy). |
+| **Paged Indexing** | Memory-mapped out-of-RAM storage via `PagedIndex` with configurable LRU cache management. |
+| **WAL & Crash Recovery** | Append-only Write-Ahead Log (`WAL`) ensuring persistence and atomic compaction checkpoints. |
+| **Metadata Filtering** | In-memory evaluation of arbitrary JSON predicate expressions (`$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`) during graph traversal and brute-force scans. |
+| **Python Bindings** | C++ bindings via pybind11 supporting zero-copy NumPy array ingestion and query filtering. |
+| **CLI Tooling** | `neuraldb_cli` utility for generating synthetic embeddings, running throughput benchmarks, and performing index evaluation. |
 
 ---
 
-## 🛠️ Build & Installation
+## Building and Installation
 
 ### Prerequisites
-- **Compiler**: MSVC (Visual Studio 2022+), GCC 10+, or Clang 12+
-- **Build System**: CMake ≥ 3.20
-- **Dependencies**: OpenMP, vcpkg (with `google-benchmark`, `gtest`, `pybind11`, `nlohmann-json`)
 
-### Building from Source
+- **Compiler**: MSVC (Visual Studio 2022+), GCC 10+, or Clang 12+ supporting C++17.
+- **Build System**: CMake $\ge 3.20$.
+- **Dependencies**: OpenMP runtime and vcpkg packages (`google-benchmark`, `gtest`, `pybind11`, `nlohmann-json`).
+
+### Build Instructions
 
 ```powershell
-# 1. Configure CMake
+# Configure project
 cmake -B build -S . `
   -DCMAKE_BUILD_TYPE=Release `
   -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
 
-# 2. Build binaries in parallel
+# Compile binaries
 cmake --build build --config Release --parallel
 
-# 3. Run unit tests
+# Execute test suite
 ctest --test-dir build -C Release --output-on-failure
 ```
 
 ---
 
-## 💡 Quick Start & Usage
+## Usage Examples
 
-### C++ API Example
+### C++ Interface
 
 ```cpp
 #include "hnsw.hpp"
@@ -56,42 +59,42 @@ ctest --test-dir build -C Release --output-on-failure
 #include <vector>
 
 int main() {
-    size_t dim = 128;
-    neuraldb::HNSWConfig cfg;
-    cfg.M = 16;
-    cfg.ef_construction = 200;
-    cfg.ef_search = 50;
+    constexpr size_t dim = 128;
+    neuraldb::HNSWConfig config;
+    config.M = 16;
+    config.ef_construction = 200;
+    config.ef_search = 50;
 
-    neuraldb::HNSWIndex index(dim, cfg);
+    neuraldb::HNSWIndex index(dim, config);
 
-    // Insert vector
+    // Insert vector with JSON metadata
     std::vector<float> vec(dim, 0.5f);
     index.insert(101, vec, R"({"category": "tech", "year": 2024})");
 
-    // Search top-k
+    // Perform approximate nearest neighbor search
     auto results = index.search(vec.data(), 5);
     for (const auto& [score, id] : results) {
-        std::cout << "ID: " << id << " | Similarity: " << score << "\n";
+        std::cout << "Vector ID: " << id << " | Similarity: " << score << "\n";
     }
 
     return 0;
 }
 ```
 
-### Python API Example
+### Python Interface
 
 ```python
 import neuraldb
 import numpy as np
 
-# Initialize index
+# Initialize HNSW index
 db = neuraldb.Index(dim=768, metric="cosine", M=16, ef_search=50)
 
-# Zero-copy NumPy insertion
+# Insert vector with zero-copy NumPy array
 vector = np.random.randn(768).astype(np.float32)
 db.insert(id=1, vector=vector, metadata={"category": "science", "year": 2023})
 
-# Query with JSON metadata filter
+# Query index with JSON metadata predicate filtering
 results = db.search(
     query=vector,
     k=10,
@@ -100,61 +103,58 @@ results = db.search(
         "category": {"$in": ["science", "tech"]}
     }
 )
-print("Results:", results)
+print("Query Results:", results)
 
-# Soft delete vector
+# Perform soft delete and index compaction
 db.delete(id=1)
-assert db.is_deleted(id=1)
-
-# Compact tombstones & persist
 db.compact("index.ndb", "wal.log")
 ```
 
-### CLI Benchmarking
+### Command Line Interface
 
 ```powershell
-# Run synthetic benchmark
+# Run benchmark with synthetic vectors (N=100000, dim=768, k=10)
 .\build\Release\neuraldb_cli.exe bench --dim 768 --n 100000 --k 10
 
-# Run benchmark on custom embeddings
+# Run evaluation with custom NumPy dataset files
 .\build\Release\neuraldb_cli.exe bench --embeddings embeddings.npy --queries queries.npy --k 10
 ```
 
 ---
 
-## 📊 Performance Benchmarks
+## Performance Metrics
 
-| Index Type | Benchmark Configuration | Latency / Query | Recall@10 | Notes |
+| Index Configuration | Dataset Parameters | Query Latency | Recall@10 | Operational Characteristics |
 |---|---|---|---|---|
-| **HNSW (AVX2)** | 100k vectors, dim=768, M=16 | ~1.0 ms | **0.96** | Lock-free candidate traversal |
-| **Flat Index (AVX2)** | 100k vectors, dim=768 | ~12.5 ms | **1.00** | OpenMP parallelized brute-force |
-| **Paged Index** | 100k vectors, dim=768 (LRU cache) | ~1.8 ms | **0.95** | Out-of-RAM disk paging overhead ~1.8x |
+| **HNSW (AVX2)** | 100k vectors, dim=768, M=16 | ~1.0 ms | **0.96** | Lock-free beam search traversal |
+| **Flat Index (AVX2)** | 100k vectors, dim=768 | ~12.5 ms | **1.00** | Lock-free OpenMP parallel scan |
+| **Paged Index** | 100k vectors, dim=768 (LRU cache) | ~1.8 ms | **0.95** | Out-of-RAM disk paging (~1.8x overhead) |
 
 ---
 
-## 📁 Repository Architecture
+## Repository Layout
 
 ```
 NeuralDB/
-├── include/              # Public C++ headers
-│   ├── distance.hpp      # Distance kernel declarations & SIMD dispatch
-│   ├── filter.hpp        # JSON predicate query parser & evaluator
-│   ├── hnsw.hpp          # HNSW index implementation
-│   ├── paged_index.hpp   # Disk-backed paged index & LRU cache
-│   ├── storage.hpp       # Binary storage & MMap utils
-│   ├── vector_store.hpp  # Flat index & SearchResult types
-│   └── wal.hpp           # Write-Ahead Logging & crash recovery
-├── src/                  # Core engine implementations
+├── include/              # Public C++ interface headers
+│   ├── distance.hpp      # SIMD distance kernel declarations
+│   ├── filter.hpp        # JSON predicate filter parser and evaluator
+│   ├── hnsw.hpp          # HNSW graph index implementation
+│   ├── paged_index.hpp   # Memory-mapped disk index & LRU page cache
+│   ├── storage.hpp       # Binary serialization & mmap utilities
+│   ├── vector_store.hpp  # FlatIndex vector store definitions
+│   └── wal.hpp           # Write-Ahead Log implementation
+├── src/                  # Core engine source files
 ├── kernels/              # SIMD Distance Kernels (AVX2, NEON, Naive)
-├── python/               # pybind11 C++ python module bindings
-├── benchmarks/           # Google Benchmark suites
-├── tests/                # Google Test suite
-├── scripts/              # Helper utility scripts
-└── CMakeLists.txt        # Master CMake build file
+├── python/               # pybind11 C++ module bindings
+├── benchmarks/           # Google Benchmark implementation
+├── tests/                # Google Test suites
+├── scripts/              # Dataset generation helper scripts
+└── CMakeLists.txt        # Master CMake build configuration
 ```
 
 ---
 
-## 📜 License
+## License
 
-Distributed under the MIT License. See `LICENSE` for more information.
+Distributed under the MIT License. See `LICENSE` for details.
