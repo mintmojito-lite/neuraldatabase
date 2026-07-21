@@ -187,12 +187,7 @@ std::vector<std::pair<float,uint32_t>> HNSWIndex::search_layer_(
     std::priority_queue<Pair> results;
 
     cands.push({-ep_sim, entry_point_id});
-    // Only add entry point to results if it's not tombstoned
-    {
-        std::shared_lock<std::shared_mutex> lock(this->index_mutex_);
-        if (!this->tombstone_[entry_point_id])
-            results.push({-ep_sim, entry_point_id});
-    }
+    results.push({-ep_sim, entry_point_id});
     visited_buf[entry_point_id] = visit_tag;
 
     while (!cands.empty()) {
@@ -221,14 +216,8 @@ std::vector<std::pair<float,uint32_t>> HNSWIndex::search_layer_(
                                           : -results.top().first;
             if (nb_sim > worst || static_cast<int>(results.size()) < ef) {
                 cands.push({-nb_sim, nb});
-                // Only add to results if not tombstoned
-                {
-                    std::shared_lock<std::shared_mutex> lock(this->index_mutex_);
-                    if (!this->tombstone_[nb]) {
-                        results.push({-nb_sim, nb});
-                        if (static_cast<int>(results.size()) > ef) results.pop();
-                    }
-                }
+                results.push({-nb_sim, nb});
+                if (static_cast<int>(results.size()) > ef) results.pop();
             }
         }
     }
@@ -238,6 +227,8 @@ std::vector<std::pair<float,uint32_t>> HNSWIndex::search_layer_(
     std::sort(out.begin(), out.end(), [](const Pair& a, const Pair& b){ return a.first > b.first; });
     return out;
 }
+
+// ── select_neighbours_ ────────────────────────────────────────────────────────
 
 std::vector<uint32_t> HNSWIndex::select_neighbours_(
     uint32_t /*q*/, const std::vector<std::pair<float,uint32_t>>& candidates, int M) const
@@ -277,13 +268,16 @@ std::vector<std::pair<float, uint64_t>> HNSWIndex::search(const float* query, in
     }
     auto candidates = this->search_layer_(query, ep, this->cfg_.ef_search, 0);
 
-    // Collect up to k results (tombstoned already filtered in search_layer_)
-    int actual_k = std::min(k, static_cast<int>(candidates.size()));
+    // Collect up to k non-deleted results
     std::vector<std::pair<float, uint64_t>> res_out;
     {
         std::shared_lock<std::shared_mutex> lock(this->index_mutex_);
-        for (int i = 0; i < actual_k; ++i)
-            res_out.push_back({ candidates[i].first, this->id_map_[candidates[i].second] });
+        for (const auto& cand : candidates) {
+            if (!this->tombstone_[cand.second]) {
+                res_out.push_back({ cand.first, this->id_map_[cand.second] });
+                if (static_cast<int>(res_out.size()) == k) break;
+            }
+        }
     }
     return res_out;
 }

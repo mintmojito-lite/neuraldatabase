@@ -7,6 +7,8 @@
 #include <omp.h>
 #endif
 
+#include <limits>
+
 namespace neuraldb {
 
 void FlatIndex::insert(uint64_t id, const float* vec, std::string metadata) {
@@ -40,17 +42,18 @@ std::vector<SearchResult> FlatIndex::search(const float* query, int k) const {
     const int n = static_cast<int>(vectors_.size());
     if (n == 0) return {};
 
-    std::vector<std::pair<float, int>> scores;
-    scores.reserve(n);
+    std::vector<std::pair<float, int>> scores(n);
 
 #pragma omp parallel for schedule(static)
     for (int i = 0; i < n; ++i) {
-        if (vectors_[i].deleted) continue;
-#pragma omp critical
-        scores.push_back({ cosine_similarity_avx2(query, vectors_[i].ptr(), dim_), i });
+        if (!vectors_[i].deleted) {
+            scores[i] = { cosine_similarity_avx2(query, vectors_[i].ptr(), dim_), i };
+        } else {
+            scores[i] = { -std::numeric_limits<float>::infinity(), i };
+        }
     }
 
-    int actual_k = std::min(k, static_cast<int>(scores.size()));
+    int actual_k = std::min(k, n);
     std::partial_sort(scores.begin(), scores.begin() + actual_k, scores.end(),
         [](const auto& a, const auto& b) { return a.first > b.first; });
 
@@ -58,6 +61,7 @@ std::vector<SearchResult> FlatIndex::search(const float* query, int k) const {
     results.reserve(actual_k);
     for (int i = 0; i < actual_k; ++i) {
         auto& [score, idx] = scores[i];
+        if (score == -std::numeric_limits<float>::infinity()) break;
         results.push_back({ vectors_[idx].id, score, vectors_[idx].metadata });
     }
     return results;
@@ -72,19 +76,21 @@ std::vector<SearchResult> FlatIndex::search_filtered(
     const float* query, int k,
     const std::function<bool(const std::string&)>& filter_fn) const
 {
-    std::vector<std::pair<float, int>> scores;
-    scores.reserve(vectors_.size());
+    const int n = static_cast<int>(vectors_.size());
+    if (n == 0) return {};
 
-    for (int i = 0; i < static_cast<int>(vectors_.size()); ++i) {
-        if (vectors_[i].deleted) continue;
-        if (filter_fn(vectors_[i].metadata)) {
-            float s = cosine_similarity_avx2(query, vectors_[i].ptr(), dim_);
-            scores.push_back({ s, i });
+    std::vector<std::pair<float, int>> scores(n);
+
+#pragma omp parallel for schedule(static)
+    for (int i = 0; i < n; ++i) {
+        if (!vectors_[i].deleted && filter_fn(vectors_[i].metadata)) {
+            scores[i] = { cosine_similarity_avx2(query, vectors_[i].ptr(), dim_), i };
+        } else {
+            scores[i] = { -std::numeric_limits<float>::infinity(), i };
         }
     }
 
-    int actual_k = std::min(k, static_cast<int>(scores.size()));
-    if (actual_k == 0) return {};
+    int actual_k = std::min(k, n);
     std::partial_sort(scores.begin(), scores.begin() + actual_k, scores.end(),
         [](const auto& a, const auto& b) { return a.first > b.first; });
 
@@ -92,6 +98,7 @@ std::vector<SearchResult> FlatIndex::search_filtered(
     results.reserve(actual_k);
     for (int i = 0; i < actual_k; ++i) {
         auto& [score, idx] = scores[i];
+        if (score == -std::numeric_limits<float>::infinity()) break;
         results.push_back({ vectors_[idx].id, score, vectors_[idx].metadata });
     }
     return results;
